@@ -1,0 +1,4 @@
+numpy
+tifffile
+PySide6
+pyinstaller
