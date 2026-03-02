@@ -167,7 +167,7 @@ class MainWindow(QtWidgets.QMainWindow):
 			self.append_log(f"Reading: {state.input_path}")
 			stack, kind = self.load_stack(state.input_path)
 
-			self.append_log(f"Loaded stack shape={stack.shape}, dtype={stack.dtype} (no normalization applied)")
+			self.append_log(f"Loaded stack shape={stack.shape}, dtype={stack.dtype}")
 			self.append_log(f"Splitting with s={state.num_shifts}, o=3, order={state.order}, flatten={state.flatten}")
 
 			res = split_tiff_stack_by_z(

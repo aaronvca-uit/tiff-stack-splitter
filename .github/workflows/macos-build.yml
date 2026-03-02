@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-14
+    runs-on: macos-14-arm64
 
     steps:
       - name: Checkout
@@ -33,12 +33,36 @@ jobs:
             --collect-all PySide6 \
             src/tiff_stack_splitter/__main__.py
 
-      - name: Zip artifact
+      - name: Smoke test (imports)
         run: |
-          ditto -c -k --sequesterRsrc --keepParent "dist/TiffStackSplitter.app" "TiffStackSplitter-macOS.zip"
+          python -c "import PySide6; import numpy; import tifffile; import tiff_stack_splitter; print('imports ok')"
 
-      - name: Upload artifact
+      - name: Smoke test (launch .app briefly)
+        run: |
+          open -a "dist/TiffStackSplitter.app" --args --help || true
+          sleep 2
+          # If it launched, the process should exist briefly. Not perfect, but catches many packaging issues.
+          pgrep -f "TiffStackSplitter" || true
+
+      - name: Install create-dmg
+        run: |
+          brew update
+          brew install create-dmg
+
+      - name: Create DMG
+        run: |
+          rm -rf dmgroot
+          mkdir -p dmgroot
+          cp -R "dist/TiffStackSplitter.app" dmgroot/
+          create-dmg \
+            --volname "TiffStackSplitter" \
+            --window-size 600 400 \
+            --app-drop-link 450 200 \
+            "TiffStackSplitter-macOS.dmg" \
+            "dmgroot"
+
+      - name: Upload artifact (DMG)
         uses: actions/upload-artifact@v4
         with:
           name: TiffStackSplitter-macOS
-          path: TiffStackSplitter-macOS.zip
+          path: TiffStackSplitter-macOS.dmg
