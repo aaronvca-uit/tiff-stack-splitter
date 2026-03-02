@@ -31,7 +31,7 @@ jobs:
             --name "TiffStackSplitter" \
             --paths "src" \
             --collect-all PySide6 \
-            -m tiff_stack_splitter
+            src/tiff_stack_splitter/__main__.py
 
       - name: Zip artifact
         run: |
