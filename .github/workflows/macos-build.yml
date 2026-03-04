@@ -35,7 +35,7 @@ jobs:
 
       - name: Smoke test (imports)
         run: |
-          python -c "import PySide6; import numpy; import tifffile; import tiff_stack_splitter; print('imports ok')"
+          PYTHONPATH=src python -c "import PySide6; import numpy; import tifffile; import tiff_stack_splitter; print('imports ok')"
 
       - name: Smoke test (launch .app briefly)
         run: |
