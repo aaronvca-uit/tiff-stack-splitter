@@ -11,13 +11,12 @@ OrderSpec = Union[str, Sequence[AxisName]]
 
 @dataclass(frozen=True)
 class StackSplitResult:
-	# Canonical view: (z, o, s, *image_dims)
-	canonical: np.ndarray
-	# One item per z: each is either (o, s, *image_dims) or flattened to (o*s, *image_dims)
+	# One item per z: each contains all frames belonging to that z,
+	# shaped (o*s, *image_dims), preserving original frame order.
 	per_z: List[np.ndarray]
 	# The inferred z count
 	z: int
-	# Echo back the interpreted order
+	# Echo back the interpreted order (fastest -> slowest)
 	order: Tuple[AxisName, AxisName, AxisName]
 
 
@@ -37,13 +36,11 @@ def _parse_order(order: OrderSpec) -> Tuple[AxisName, AxisName, AxisName]:
 	# Type narrow
 	return parts[0], parts[1], parts[2]  # type: ignore[return-value]
 
-
 def split_tiff_stack_by_z(
 	stack: np.ndarray,
 	*,
 	num_shifts: Literal[3, 5],
 	order: OrderSpec,
-	flatten_og: bool = True,
 ) -> StackSplitResult:
 	"""
 	Splits a TIFF-like frame stack into per-z stacks, given:
@@ -53,6 +50,10 @@ def split_tiff_stack_by_z(
 	- 'order' specifies how frames are arranged in the flattened sequence,
 	  e.g. "s-z-o" means s varies fastest, then z, then o.
 
+	- For each z, we simply grab all frames that belong to that z from the
+	  original flattened sequence, preserving their original order.
+	- The order of frames *within* each per-z output does not matter.
+
 	Parameters
 	----------
 	stack:
@@ -60,16 +61,12 @@ def split_tiff_stack_by_z(
 	num_shifts:
 		3 (2D option) or 5 (3D option).
 	order:
-		Permutation of 's', 'z', 'o' describing the frame order.
-	flatten_og:
-		If True, each per-z item is returned flattened to (o*s, *image_dims).
-		If False, each per-z item is (o, s, *image_dims).
+		Permutation of 's', 'z', 'o' describing the frame order (FASTEST -> SLOWEST).
 
 	Returns
 	-------
 	StackSplitResult with:
-	- canonical: (z, o, s, *image_dims)
-	- per_z: list length z
+	- per_z: list length z, each shaped (o*s, *image_dims)
 	"""
 	if not isinstance(stack, np.ndarray):
 		raise TypeError("stack must be a numpy array")
@@ -83,6 +80,9 @@ def split_tiff_stack_by_z(
 	n_frames = int(stack.shape[0])
 	denom = o * s
 
+	if n_frames == 0:
+		raise ValueError("stack has 0 frames; cannot infer z")
+
 	if n_frames % denom != 0:
 		raise ValueError(
 			"Cannot infer z because n_frames is not divisible by (o*s). "
@@ -95,28 +95,54 @@ def split_tiff_stack_by_z(
 	# matching your example: order="s-z-o" => o slowest, z middle, s fastest.
 	user_order = _parse_order(order)
 
-	reshape_order = tuple(reversed(user_order))  # SLOWEST -> FASTEST for np.reshape
+	# Build stride (in "flattened-frame index space") for each logical axis,
+	# based on fastest->slowest convention:
+	#
+	# Example user_order = ('s','z','o')
+	# sizes: s=5, z=10, o=3
+	# stride[s]=1
+	# stride[z]=size[s]
+	# stride[o]=size[s]*size[z]
 	size_by_axis: Dict[AxisName, int] = {"s": s, "z": z, "o": o}
-	reshape_dims = tuple(size_by_axis[a] for a in reshape_order) + tuple(stack.shape[1:])
+	stride_by_axis: Dict[AxisName, int] = {}
 
-	reshaped = stack.reshape(reshape_dims)
+	stride = 1
+	for a in user_order:
+		stride_by_axis[a] = stride
+		stride *= int(size_by_axis[a])
 
-	# Now transpose to canonical (z, o, s, ...)
-	idx_by_axis = {a: reshape_order.index(a) for a in ("s", "z", "o")}
-	transpose_axes = (idx_by_axis["z"], idx_by_axis["o"], idx_by_axis["s"]) + tuple(range(3, reshaped.ndim))
-	canonical = np.transpose(reshaped, axes=transpose_axes)
+	# Given a frame index i (0..n_frames-1), recover the z coordinate without reshaping/transposing:
+	# coord[a] = (i // stride[a]) % size[a]
+	z_stride = int(stride_by_axis["z"])
+	z_size = int(size_by_axis["z"])
 
-	# Split into per-z stacks
+	# Collect indices for each z slice. This is O(n_frames) and avoids any global reordering.
+	indices_by_z: List[List[int]] = [[] for _ in range(z)]
+	for i in range(n_frames):
+		zi = (i // z_stride) % z_size
+		indices_by_z[int(zi)].append(int(i))
+
+	# Build per-z stacks by fancy indexing. This preserves the original frame order within each z.
+	# Each block contains exactly o*s frames (unless the input is malformed).
 	per_z: List[np.ndarray] = []
 	for zi in range(z):
-		block = canonical[zi]  # (o, s, *imgdims)
-		if flatten_og:
-			# Flatten (o,s) -> (o*s) in a consistent order: o major, s minor
-			block = block.reshape((o * s,) + block.shape[2:])
+		idxs = indices_by_z[zi]
+
+		# Sanity check: each z should contain exactly denom frames for SIM (o*s).
+		# If not, something about the input/order assumptions is off.
+		if len(idxs) != denom:
+			raise ValueError(
+				"Input/order mapping produced an unexpected number of frames for a z-slice. "
+				f"z={z}, expected_per_z={denom}, got_per_z={len(idxs)} for zi={zi}. "
+				"If this is multi-FOV or includes extra frames, split channels/FOVs first."
+			)
+
+		block = stack[idxs]  # shape: (o*s, *image_dims)
 		per_z.append(block)
 
+	# NOTE:
+	# If your StackSplitResult currently requires an ndarray here, change it to Optional[np.ndarray].
 	return StackSplitResult(
-		canonical=canonical,
 		per_z=per_z,
 		z=z,
 		order=user_order,  # keep reporting what the user provided
