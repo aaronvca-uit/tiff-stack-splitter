@@ -39,9 +39,8 @@ jobs:
 
       - name: Smoke test (launch .app briefly)
         run: |
-          open -a "dist/TiffStackSplitter.app" --args --help || true
+          open "dist/TiffStackSplitter.app" --args --help || true
           sleep 2
-          # If it launched, the process should exist briefly. Not perfect, but catches many packaging issues.
           pgrep -f "TiffStackSplitter" || true
 
       - name: Install create-dmg
