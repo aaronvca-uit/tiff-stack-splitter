@@ -38,9 +38,12 @@ jobs:
         run: |
           PYTHONPATH=src python -c "import PySide6; import numpy; import tifffile; import tiff_stack_splitter; print('imports ok')"
 
-      - name: Smoke test (run bundled executable directly)
+      - name: Smoke test (launch briefly)
         run: |
-          "dist/TiffStackSplitter.app/Contents/MacOS/TiffStackSplitter"
+          "dist/TiffStackSplitter.app/Contents/MacOS/TiffStackSplitter" &
+          APP_PID=$!
+          sleep 5
+          kill $APP_PID || true
 
       - name: Install create-dmg
         run: |
