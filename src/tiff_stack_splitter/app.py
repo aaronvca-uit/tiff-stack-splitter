@@ -1,13 +1,11 @@
 from __future__ import annotations
-
 import os
+import sys
 import traceback
 from dataclasses import dataclass
-from typing import Dict, List, Literal, Tuple, Optional, Sequence, Union
-
+from typing import Any, Dict, List, Literal, Tuple, Optional, Sequence, Union
 import numpy as np
 from PySide6 import QtWidgets
-
 import tifffile
 
 AxisName = Literal["s", "z", "o"]
@@ -793,10 +791,26 @@ class MainWindow(QtWidgets.QMainWindow):
 			self.append_log(traceback.format_exc())
 
 def main() -> None:
-	app = QtWidgets.QApplication([])
-	w = MainWindow()
-	w.show()
-	app.exec()
+	try:
+		with open(os.path.expanduser("~/tiff_stack_splitter_startup.log"), "a") as f:
+			f.write("main() entered\n")
+		app = QtWidgets.QApplication(sys.argv)
+		with open(os.path.expanduser("~/tiff_stack_splitter_startup.log"), "a") as f:
+			f.write("QApplication created\n")
+		w = MainWindow()
+		with open(os.path.expanduser("~/tiff_stack_splitter_startup.log"), "a") as f:
+			f.write("MainWindow created\n")
+		w.resize(900, 600)
+		w.show()
+		w.raise_()
+		w.activateWindow()
+		with open(os.path.expanduser("~/tiff_stack_splitter_startup.log"), "a") as f:
+			f.write("window shown\n")
+		sys.exit(app.exec())
+	except Exception:
+		with open(os.path.expanduser("~/tiff_stack_splitter_startup.log"), "a") as f:
+			f.write(traceback.format_exc())
+		raise
 
 
 if __name__ == "__main__":
